@@ -1,0 +1,82 @@
+version: '3'
+dotenv: ["awscred"]
+
+tasks:
+  create-infrastucture:
+    desc: "Initialize and deploy AWS infrastructure using OpenToFu with `deploy.tfvars` configurations."
+    cmds:
+      - echo "🚀 Initializing AWS infrastructure creation."
+      - tofu init
+      - tofu fmt
+      - tofu apply --var-file=./config/deploy.tfvars --auto-approve
+    silent: true
+
+  destroy-infrastucture:
+    desc: "Destroy OpenToFu-provisioned AWS infrastructure to ensure cleanliness as per `deploy.tfvars`."
+    cmds:
+      - echo "🔥 Delete gatewatapi, application & gatewayclass." 
+      - kubectl delete -k ./gatewayAPI/
+      - kubectl delete -k ./demo/
+      - kubectl delete -k ./gatewayClass/
+      - echo "🧹 Cleaning kubeconfig."
+      - >
+        NAME=$(aws eks list-clusters --region $AWS_DEFAULT_REGION --output json --query "clusters[0]" | tr -d '"') &&
+        kubectx -d $NAME
+      - echo "💥 Destroying AWS infrastructure."
+      - tofu destroy --var-file=./config/deploy.tfvars --auto-approve
+    silent: true
+
+  update-kubeconfig:
+    desc: "Retrieve the first Amazon EKS cluster name in a specified AWS region and update kubeconfig for kubectl, setting an alias."
+    cmds:
+      - echo "🔄 Updating kubeconfig from EKS."
+      - >
+        NAME=$(aws eks list-clusters --region $AWS_DEFAULT_REGION --output json --query "clusters[0]" | tr -d '"') &&
+        aws eks update-kubeconfig --name $NAME --region $AWS_DEFAULT_REGION --alias $NAME
+    silent: true
+
+  install-metrics-server:
+    desc: "Install Kubernetes Metrics Server in the matching EKS cluster's region for enhanced resource monitoring."
+    cmds:
+      - >
+        NAME=$(aws eks list-clusters --region $AWS_DEFAULT_REGION --output json --query "clusters[0]" | tr -d '"') &&
+        if [ "$(kubectl config current-context)" = $NAME ]; then
+          echo "📊 Installing Metrics Server..." &&
+          kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+        else
+          echo "❌ Context mismatch, installation halted."
+        fi
+    silent: true
+
+  install-gateway-class:
+    desc: "Install the Amazon VPC Gateway Class for the EKS cluster."
+    cmds:
+      - echo "🚀 Installing Amazon VPC Gateway Class."
+      - kubectl apply -k ./gatewayClass/
+    silent: true
+
+  install-demo-app:
+    desc: "Install the demo app in the EKS cluster."
+    cmds:
+      - echo "🚀 Installing demo app."
+      - kubectl apply -k ./demo/
+    silent: true
+  
+  install-gateway-api:
+    desc: "Install the Gateway API in the EKS cluster."
+    cmds:
+      - echo "🚀 Installing Gateway API."
+      - kubectl apply -k ./gatewayAPI/
+      - kubectl wait --timeout=3m --for=jsonpath='{.status.parents[-1:].conditions[-1:].reason}'=ResolvedRefs httproute/echoer-route
+    silent: true
+
+  fully-deploy:
+    desc: "Run the full deployment sequence: create infrastructure, update kubeconfig, install metrics server, install demo app, install gateway class and install gateway API."
+    cmds:
+      - task: create-infrastucture
+      - task: update-kubeconfig
+      - task: install-metrics-server
+      - task: install-gateway-class
+      - task: install-demo-app
+      - task: install-gateway-api
+    silent: true

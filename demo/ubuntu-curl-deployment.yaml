@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ubuntu-curl-deployment
+  labels:
+    app: ubuntu-curl
+spec:
+  replicas: 1 
+  selector:
+    matchLabels:
+      app: ubuntu-curl
+  template:
+    metadata:
+      labels:
+        app: ubuntu-curl
+    spec:
+      containers:
+      - name: ubuntu-curl
+        image: ubuntu:latest 
+        command: ["/bin/bash", "-c"]
+        args:
+          - apt-get update &&
+            apt-get install -y curl &&
+            /bin/sleep infinity 
+        resources:
+          requests:
+            memory: "64Mi" 
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        volumeMounts:
+          - name: my-vol
+            mountPath: /data
+      volumes:
+      - name: my-vol
+        emptyDir: {}
